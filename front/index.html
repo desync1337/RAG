@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corporate Knowledge Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Left Panel - Document Viewer -->
+        <div class="panel document-viewer">
+            <div class="panel-header">
+                <h2>Просмотр источника</h2>
+            </div>
+            <div id="document-content">
+                <!-- Document content will appear here -->
+                <p style="text-align: center; color: #666; padding: 40px 20px;">
+                    Выберите источник справа для просмотра документа
+                </p>
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="panel chat-area">
+            <div class="panel-header">
+                <h2>Чат с ассистентом</h2>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <!-- Messages will appear here -->
+            </div>
+            
+            <div class="typing-indicator" id="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="question-input" placeholder="Задайте вопрос о документах..."
+                autocomplete="off" 
+                autocorrect="off" 
+                autocapitalize="off" 
+                spellcheck="false">
+                
+                <button id="send-btn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path d="M22 2L11 13" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Panel - Context Sources -->
+        <div class="panel sources-panel">
+            <div class="panel-header">
+                <h3>Источники ответа</h3>
+            </div>
+            <div id="context-sources">
+                <!-- Context sources will appear here -->
+            </div>
+        </div>
+    </div>
+    <div id="loading-screen">
+        <div class="loader"></div>
+        <p>Подключаемся к серверу...</p>
+        <div id="error-message" style="display: none; color: #e53935; margin-top: 20px;"></div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
