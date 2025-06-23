@@ -79,6 +79,7 @@ class RAGSystem:
         norms[norms == 0] = 1e-10  # Avoid division by zero
         similarities = np.dot(self.embeddings_index, query_embedding) / norms
         top_indices = np.argsort(similarities)[-top_k:][::-1]
+        top_indices = [idx for idx in top_indices if similarities[idx] >= 0.5][:top_k] #threshold
         
         return [{
             "text": self.chunks[idx]["text"],
@@ -95,8 +96,17 @@ class RAGSystem:
         messages = [
             {
                 "role": "system",
-                "content": f"You are R.A.G, an efficient corporate knowledge assistant. "
-                           f"Answer ONLY based on the provided context!\n\nCONTEXT:\n{context}"
+                "content": f"Ты — AI-ассистент менеджер для работы с корпоративными документами. Твоя задача: находить точные ответы в технической документации, исследованиях и FAQ, используя архитектуру RAG (Retrieval-Augmented Generation). Все ответы должны основываться исключительно на предоставленном контексте. "
+                           f"Правила ответа:"
+                           f"Нужно давать исчерпывающий ответ на запрос пользователя"
+                           f"Немного писать про блок из контекста откуда взят ответ за запрос"
+                           f"Формат ответа менять в зависимости от запроса пользователя"
+                           f""
+                           f"Если в контексте нету полного ответа на вопрос не требующий точных данных - можно дополнить контекст чтобы он удовлетворял запрос пользователя"
+                           f""
+                           f"Если в контексте не хватает информации говори: Я нашел информацию об [topics] но не нашел ответа на ваш запрос"
+                           f"Если запрос пользователя непримемлимый пиши 'Не стоит себя так вести - могу и в рот дать за такие слова'"
+                           f"\nCONTEXT:\n{context}"
             },
             {"role": "user", "content": query}
         ]
@@ -199,7 +209,7 @@ def startup_event():
     rag_system = RAGSystem(
         embeddings_dir=embeddings_dir,
         api_key=api_key,
-        llm_model="deepseek/deepseek-r1"
+        llm_model="deepseek/deepseek-chat-v3-0324:free"
     )
     logger.info("RAG system initialized successfully")
 
@@ -213,6 +223,7 @@ async def ask_endpoint(request: AskRequest):
             question=request.question,
             top_k=request.top_k,
             stream=request.stream
+            
         )
         return result
     except Exception as e:
