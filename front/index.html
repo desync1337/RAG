@@ -8,6 +8,34 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
+    <div id="tokenModal" class="token-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Настройки API токена</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            
+            <div class="form-group">
+                <label for="apiToken" class="form-label">Ваш API токен:</label>
+                <input 
+                    type="password" 
+                    id="apiToken" 
+                    class="token-input" 
+                    placeholder="Введите ваш секретный токен"
+                >
+                <div class="hint" style="font-size: 0.85rem; color: #666; margin-top: 6px;">
+                    Токен будет сохранен в localStorage вашего браузера
+                </div>
+            </div>
+            
+            <div id="statusMessage" class="status-message"></div>
+            
+            <div class="form-footer">
+                <button id="cancelBtn" class="btn btn-secondary">Отмена</button>
+                <button id="saveTokenBtn" class="btn btn-primary">Сохранить</button>
+            </div>
+        </div>
+    </div>
     <div class="container">
         <!-- Left Panel - Document Viewer -->
         <div class="panel document-viewer">
@@ -25,6 +53,9 @@
         <!-- Main Chat Area -->
         <div class="panel chat-area">
             <div class="panel-header">
+                <button id="settings-button" style="position: absolute; top: 20px; right: 20px; background: none; border: none; cursor: pointer;">
+    <img src="assets/settings-icon.svg" alt="Settings" width="24">
+</button>
                 <h2>Чат с ассистентом</h2>
             </div>
             

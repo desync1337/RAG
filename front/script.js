@@ -1,4 +1,89 @@
-let isBotResponding = false;
+const openSettingsBtn = document.getElementById('settings-button');
+const tokenModal = document.getElementById('tokenModal');
+const closeBtn = document.querySelector('.close-btn');
+const cancelBtn = document.getElementById('cancelBtn');
+const saveTokenBtn = document.getElementById('saveTokenBtn');
+const apiTokenInput = document.getElementById('apiToken');
+const statusMessage = document.getElementById('statusMessage');
+
+openSettingsBtn.addEventListener('click', () => {
+            // Загрузить сохраненный токен при открытии
+            const savedToken = localStorage.getItem('apiToken');
+            if (savedToken) {
+                apiTokenInput.value = savedToken;
+            }
+            tokenModal.style.display = 'flex';
+        });
+
+        // Закрыть модальное окно
+        function closeModal() {
+            tokenModal.style.display = 'none';
+            clearStatus();
+        }
+
+        // Обработчики закрытия
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+
+        // Закрыть при клике вне окна
+        window.addEventListener('click', (e) => {
+            if (e.target === tokenModal) {
+                closeModal();
+            }
+        });
+
+    saveTokenBtn.addEventListener('click', () => {
+            const token = apiTokenInput.value.trim();
+            
+            if (!token) {
+                showStatus('Ошибка: Токен не может быть пустым', 'error');
+                return;
+            }
+            
+            // Валидация токена (пример)
+            if (token.length < 20) {
+                showStatus('Ошибка: Токен слишком короткий', 'error');
+                return;
+            }
+            
+            try {
+                // Сохраняем в localStorage
+                localStorage.setItem('apiToken', token);
+                showStatus('Токен успешно сохранен!', 'success');
+                
+                // Автоматически закрываем через 1.5 секунды
+                setTimeout(() => {
+                    closeModal();
+                }, 1500);
+                
+            } catch (e) {
+                showStatus(`Ошибка сохранения: ${e.message}`, 'error');
+            }
+        });
+
+        // Показать статусное сообщение
+        function showStatus(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status-message';
+            statusMessage.classList.add(`status-${type}`);
+            statusMessage.style.display = 'block';
+        }
+
+        // Очистить статус
+        function clearStatus() {
+            statusMessage.style.display = 'none';
+            statusMessage.textContent = '';
+        }
+
+        // Инициализация: загружаем токен при старте (если нужно)
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedToken = localStorage.getItem('apiToken');
+            if (savedToken) {
+                // Можно использовать токен в приложении
+                console.log('Токен загружен из хранилища');
+            }
+        });
+
 document.addEventListener('DOMContentLoaded', function() {
     const chatMessages = document.getElementById('chat-messages');
     const questionInput = document.getElementById('question-input');
@@ -6,12 +91,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const typingIndicator = document.getElementById('typing-indicator');
     const contextSources = document.getElementById('context-sources');
     const documentContent = document.getElementById('document-content');
-    
+
     // Показать экран загрузки
     const loadingScreen = document.getElementById('loading-screen');
     const errorMessage = document.getElementById('error-message');
     const API_BASE = 'http://localhost:8000';
 
+    let isBotResponding = false;
     let isServerAvailable = false;
     // Функция проверки сервера
     async function checkServerConnection() {
@@ -38,20 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Проверить соединение перед инициализацией
     checkServerConnection();
 
-    // Заблокировать интерфейс пока сервер не ответит
-    //questionInput.disabled = true;
-    //sendBtn.disabled = true;
-    
-    
-// В функции initializeApp (если она есть) или в конце добавьте:
-    //if (!isServerAvailable) {
-    //    // Показываем предупреждение, что интерфейс заблокирован
-    //    const chatContainer = document.querySelector('.chat-area');
-    //    chatContainer.style.opacity = '0.5';
-    //    chatContainer.style.pointerEvents = 'none';
-    //}
-    
-    // Render Markdown to HTML
+
     function renderMarkdown(text) {
         return marked.parse(text);
     }
@@ -145,68 +218,82 @@ function typeResponse(element, text, speed = 20) {
     }
     
     // Send question to API
-    async function sendQuestion() {
-        if (!isServerAvailable) {
-            alert('Сервер недоступен. Пожалуйста, дождитесь подключения.');
-            return;
-        }
-        const question = questionInput.value.trim();
-        if (!question || isBotResponding) return; // Добавлена проверка
-    
-        // Добавьте флаг, что бот отвечает
-        isBotResponding = true;
-        questionInput.disabled = true;
-        sendBtn.disabled = true;
-        
-        // Clear previous context sources (right panel)
-        contextSources.innerHTML = '<div class="source-ref">Поиск источников...</div>';
-        
-        // Add user message
-        addMessage(question, true);
-        questionInput.value = '';
-        sendBtn.disabled = true;
-        
-        // Show typing indicator
-        showTyping(true);
-        
-        try {
-            const response = await fetch(`${API_BASE}/ask`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    question: question,
-                    top_k: 3,
-                    stream: false
-                })
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
-            }
-            
-            const data = await response.json();
-            
-            // Add bot response with Markdown support
-            addMessage(data.answer, false, true);
-            
-            // Show context sources
-            renderContextSources(data.contexts);
-            
-        } catch (error) {
-            console.error('Error:', error);
-            addMessage(`Ошибка: ${error.message}`, false);
-            contextSources.innerHTML = `<div class="source-ref">Ошибка получения источников: ${error.message}</div>`;
-        } finally {
-            showTyping(false);
-            sendBtn.disabled = false;
-            questionInput.disabled = false;
-            isBotResponding = false; // Разблокируем ввод
-}
+ async function sendQuestion() {
+    if (!isServerAvailable) {
+        alert('Сервер недоступен. Пожалуйста, дождитесь подключения.');
+        return;
     }
+    
+    const question = questionInput.value.trim();
+    if (!question || isBotResponding) return;
+    
+    // Получаем токен из localStorage
+    const apiToken = localStorage.getItem('apiToken');
+
+    if (!apiToken) {
+        alert('API токен не найден! Пожалуйста, нажмите на кнопку настроек и введите токен.');
+        openSettingsBtn.click();
+        return;
+    }
+    
+    isBotResponding = true;
+    questionInput.disabled = true;
+    sendBtn.disabled = true;
+    
+    contextSources.innerHTML = '<div class="source-ref">Поиск источников...</div>';
+    addMessage(question, true);
+    questionInput.value = '';
+    sendBtn.disabled = true;
+    
+    showTyping(true);
+    
+    try {
+        const response = await fetch(`${API_BASE}/ask`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json; charset=utf-8' // Явно указываем кодировку
+            },
+            body: JSON.stringify({ 
+                question: question,
+                top_k: 3,
+                stream: false,
+                api_key: apiToken
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Добавляем ответ бота в чат
+        addMessage(data.answer, false, true);
+        
+        // Показываем источники
+        renderContextSources(data.contexts);
+        
+    } catch (error) {
+        console.error('Error:', error);
+        
+        if (error.message.includes('401') || 
+            error.message.includes('токен') || 
+            error.message.includes('аутентификац')) {
+            addMessage("Ошибка авторизации: неверный или отсутствующий API токен. Пожалуйста, проверьте настройки.", false);
+            openSettingsBtn.click();
+        } else {
+            addMessage(`Ошибка: ${error.message}`, false);
+        }
+        
+        contextSources.innerHTML = `<div class="source-ref">Ошибка получения источников: ${error.message}</div>`;
+    } finally {
+        showTyping(false);
+        sendBtn.disabled = false;
+        questionInput.disabled = false;
+        isBotResponding = false;
+    }
+}
     
     // Event listeners
     sendBtn.addEventListener('click', sendQuestion);

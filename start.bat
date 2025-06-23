@@ -1,2 +1,2 @@
-set OPENROUTER_API_KEY=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
+set OPENROUTER_API_KEY=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
 uvicorn webmain:app --reload

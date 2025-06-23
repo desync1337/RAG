@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import requests
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -25,24 +25,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Models
+class ModelRequest(BaseModel):
+    model_name: str
+
 class AskRequest(BaseModel):
     question: str
     top_k: int = 5
     stream: bool = False
-
-class ModelRequest(BaseModel):
-    model_name: str
+    api_key: str
 
 class RAGSystem:
-    def __init__(self, embeddings_dir: str, api_key: str,
-                 model_name: str = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
-                 llm_model: str = "deepseek/deepseek-r1"):
-        self.api_key = api_key
-        self.llm_model = llm_model
+    def __init__(self, embeddings_dir: str, 
+                 model_name: str = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'):
         self.chunks, self.embeddings = self.load_embeddings(embeddings_dir)
         self.embedding_model = SentenceTransformer(model_name)
         self.embeddings_index = np.array(self.embeddings)
+        self.llm_model = "google/gemini-2.0-flash-001"
         logger.info(f"RAG system initialized with {len(self.chunks)} chunks")
 
     def load_embeddings(self, embeddings_dir: str):
@@ -76,10 +74,10 @@ class RAGSystem:
     def find_relevant_chunks(self, query: str, top_k: int = 3):
         query_embedding = self.embedding_model.encode([query], convert_to_numpy=True)[0]
         norms = np.linalg.norm(self.embeddings_index, axis=1) * np.linalg.norm(query_embedding)
-        norms[norms == 0] = 1e-10  # Avoid division by zero
+        norms[norms == 0] = 1e-10
         similarities = np.dot(self.embeddings_index, query_embedding) / norms
         top_indices = np.argsort(similarities)[-top_k:][::-1]
-        top_indices = [idx for idx in top_indices if similarities[idx] >= 0.5][:top_k] #threshold
+        top_indices = [idx for idx in top_indices if similarities[idx] >= 0.5][:top_k]
         
         return [{
             "text": self.chunks[idx]["text"],
@@ -87,31 +85,29 @@ class RAGSystem:
             "score": float(similarities[idx])
         } for idx in top_indices]
 
-    def generate_response(self, query: str, context_chunks: List[Dict], stream: bool = False) -> str:
+    def generate_response(self, query: str, context_chunks: List[Dict], api_key: str, stream: bool = False) -> str:
         context = "\n\n".join(
             [f"[Document: {chunk['metadata']['source']}, Page {chunk['metadata']['page']}]\n{chunk['text']}" 
              for chunk in context_chunks]
         )
         
+        system_prompt = (
+            "Ты — AI-ассистент для работы с корпоративными документами. "
+            "Отвечай точно на вопросы, используя только предоставленный контекст.\n\n"
+            "отвечай как можно более расширенно и больше информации о источнике"
+            f"КОНТЕКСТ:\n{context}"
+        )
+        
         messages = [
-            {
-                "role": "system",
-                "content": f"Ты — AI-ассистент менеджер для работы с корпоративными документами. Твоя задача: находить точные ответы в технической документации, исследованиях и FAQ, используя архитектуру RAG (Retrieval-Augmented Generation). Все ответы должны основываться исключительно на предоставленном контексте. "
-                           f"Правила ответа:"
-                           f"Нужно давать исчерпывающий ответ на запрос пользователя"
-                           f"Немного писать про блок из контекста откуда взят ответ за запрос"
-                           f"Формат ответа менять в зависимости от запроса пользователя"
-                           f""
-                           f"Если в контексте нету полного ответа на вопрос не требующий точных данных - можно дополнить контекст чтобы он удовлетворял запрос пользователя"
-                           f""
-                           f"Если в контексте не хватает информации говори: Я нашел информацию об [topics] но не нашел ответа на ваш запрос"
-                           f"Если запрос пользователя непримемлимый пиши 'Не стоит себя так вести - могу и в рот дать за такие слова'"
-                           f"\nCONTEXT:\n{context}"
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ]
         
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {api_key}", 
+            "Content-Type": "application/json"
+        }
+        
         data = {
             "model": self.llm_model,
             "messages": messages,
@@ -125,58 +121,82 @@ class RAGSystem:
                 return self.stream_response(data, headers)
             return self.non_stream_response(data, headers)
         except Exception as e:
-            return f"Generation error: {str(e)}"
+            logger.error(f"Generation error: {str(e)}")
+            return f"Ошибка генерации ответа: {str(e)}"
 
     def stream_response(self, data: dict, headers: dict) -> str:
         full_response = []
-        with requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=data,
-            stream=True
-        ) as response:
+        try:
+            # Указываем кодировку явно
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data,
+                stream=True,
+                timeout=30
+            )
+            
             if response.status_code != 200:
-                return f"API error: {response.status_code}"
+                error_msg = response.text
+                return f"API error: {response.status_code} - {error_msg}"
                 
             for chunk in response.iter_lines():
-                if not chunk:
-                    continue
-                    
-                chunk_str = chunk.decode('utf-8').replace('data: ', '').strip()
-                if chunk_str == "[DONE]":
-                    break
-                    
-                try:
-                    chunk_json = json.loads(chunk_str)
-                    if "choices" in chunk_json:
-                        content = chunk_json["choices"][0]["delta"].get("content", "")
-                        full_response.append(content)
-                except json.JSONDecodeError:
-                    continue
+                if chunk:
+                    # Явно указываем кодировку UTF-8
+                    chunk_str = chunk.decode('utf-8', errors='replace').replace('data: ', '').strip()
+                    if chunk_str == "[DONE]":
+                        break
+                    try:
+                        chunk_json = json.loads(chunk_str)
+                        if "choices" in chunk_json:
+                            content = chunk_json["choices"][0]["delta"].get("content", "")
+                            full_response.append(content)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.error(f"Stream error: {str(e)}")
+            return f"Ошибка потока: {str(e)}"
+            
         return ''.join(full_response)
 
     def non_stream_response(self, data: dict, headers: dict) -> str:
-        data["stream"] = False
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=data
-        )
-        if response.status_code != 200:
-            return f"API error: {response.status_code}"
-        return response.json()["choices"][0]["message"]["content"]
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            response.encoding = 'utf-8'  # Явно указываем кодировку
+            
+            if response.status_code != 200:
+                error_msg = response.text
+                return f"API error: {response.status_code} - {error_msg}"
+                
+            return response.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"Non-stream error: {str(e)}")
+            return f"Ошибка генерации: {str(e)}"
 
-    def ask(self, question: str, top_k: int = 3, stream: bool = False) -> Dict[str, Any]:
-        relevant_chunks = self.find_relevant_chunks(question, top_k=top_k)
-        answer = self.generate_response(question, relevant_chunks, stream=stream)
-        return {
-            "question": question,
-            "answer": answer,
-            "contexts": relevant_chunks
-        }
-    
+    def ask(self, question: str, api_key: str, top_k: int = 3, stream: bool = False) -> Dict[str, Any]:
+        try:
+            relevant_chunks = self.find_relevant_chunks(question, top_k=top_k)
+            answer = self.generate_response(question, relevant_chunks, api_key, stream=stream)
+            return {
+                "question": question,
+                "answer": answer,
+                "contexts": relevant_chunks
+            }
+        except Exception as e:
+            logger.error(f"Ask error: {str(e)}")
+            return {
+                "question": question,
+                "answer": f"Системная ошибка: {str(e)}",
+                "contexts": []
+            }
+
     def get_source_content(self, filename: str) -> str:
-        """Получить содержимое источника по имени файла"""
         content = []
         for chunk in self.chunks:
             if chunk['metadata']['source'] == filename:
@@ -197,20 +217,10 @@ rag_system: Optional[RAGSystem] = None
 @app.on_event("startup")
 def startup_event():
     global rag_system
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        logger.error("OPENROUTER_API_KEY environment variable not set")
-        raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
-    
-    # Создаем директорию для эмбеддингов, если её нет
     embeddings_dir = "embedding"
     os.makedirs(embeddings_dir, exist_ok=True)
     
-    rag_system = RAGSystem(
-        embeddings_dir=embeddings_dir,
-        api_key=api_key,
-        llm_model="deepseek/deepseek-chat-v3-0324:free"
-    )
+    rag_system = RAGSystem(embeddings_dir=embeddings_dir)
     logger.info("RAG system initialized successfully")
 
 @app.post("/ask")
@@ -221,9 +231,9 @@ async def ask_endpoint(request: AskRequest):
     try:
         result = rag_system.ask(
             question=request.question,
+            api_key=request.api_key,
             top_k=request.top_k,
             stream=request.stream
-            
         )
         return result
     except Exception as e:

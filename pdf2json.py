@@ -107,7 +107,7 @@ def docx_to_json(docx_path, output_dir, lang="russian"):
     filename = Path(docx_path).name
     
     try:
-        doc = Document(docx_path)
+        doc = docx.Document(docx_path)
         
         # Собираем текст с сохранением информации о разрывах страниц
         page_texts = []
